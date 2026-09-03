@@ -57,32 +57,40 @@ ai_engineering-hoja-4/
 
 ## 5. División del trabajo (3 personas)
 
-### Persona A — Infraestructura + Base de datos vectorial (20 pts) + apoyo en script de carga
+> Reparto ajustado: **Persona A concentra la mayor carga** (infraestructura + script de carga completos, 40 pts de la rúbrica), mientras que Personas B y C se dividen el agente (30 pts) y el apoyo en pruebas/documentación/video.
+
+### Persona A — Infraestructura + Base de datos vectorial + Script de carga (40 pts en total)
+**a) Infraestructura (20 pts)**
 - Levantar `docker-compose.yml` con imagen `pgvector/pgvector:pg16` (o similar).
 - Script `db/init.sql`: `CREATE EXTENSION IF NOT EXISTS vector;`, tabla `faqs` con columna `vector(384)`, índice `ivfflat` o `hnsw` para similaridad coseno.
 - Documentar en el README cómo levantar/bajar/resetear el contenedor.
 - Probar conexión desde Python (`psycopg2` / `psycopg`).
-- Entregable: infra reproducible con un solo comando (`docker compose up -d`).
 
-### Persona B — Script de carga + preprocesamiento del corpus (20 pts)
+**b) Script de carga (20 pts)**
 - Analizar `Corpus_FAQs_Parachute_SA_2026.txt` y escribir `loader/preprocess.py` para extraer pares pregunta/respuesta (limpieza de encabezados, numeración, etc.).
 - Escribir `loader/load_embeddings.py`:
   - Carga el corpus preprocesado.
   - Genera embeddings con `sentence-transformers` (`all-MiniLM-L6-v2`).
   - Inserta/actualiza en la tabla `faqs` de PostgreSQL (usar `psycopg2`/`psycopg` + `pgvector` adapter).
   - Debe ser idempotente (se pueda re-ejecutar sin duplicar filas — TRUNCATE o UPSERT por hash del texto).
-- Entregable: `python loader/load_embeddings.py` deja la base de datos lista para consultas.
+- Entregable: infra reproducible con un solo comando (`docker compose up -d`) y `python loader/load_embeddings.py` deja la base de datos lista para consultas.
 
-### Persona C — Agente + Tool/Function calling + integración final (30 pts) + video
+### Persona B — Agente: tool/function calling + lógica de búsqueda (parte central de los 30 pts)
 - Definir la tool `search_faq(query: str, top_k: int)` según el SDK elegido (JSON schema de la tool).
 - Handler de la tool: genera embedding de la query del usuario (mismo modelo, `all-MiniLM-L6-v2`) y hace `SELECT ... ORDER BY embedding <=> %s LIMIT top_k` contra pgvector.
 - Prompt de sistema: el agente **solo** puede responder con base en los resultados devueltos por la tool; si no hay match suficientemente cercano, debe decir explícitamente que no tiene esa información.
-- Loop de terminal: lee input del usuario en bucle, corta con `Bye` (case-insensitive) o `Ctrl-C` (manejar `KeyboardInterrupt` con salida limpia).
-- Entregable: `python agent/agent.py` — sesión interactiva funcional.
+- Definir junto con Persona A el contrato de conexión a la base de datos (variables de entorno, formato de la tabla).
+- Entregable: `agent/tools.py` con la tool y su handler funcionando contra la base de datos ya cargada.
+
+### Persona C — Agente: loop de terminal + integración final + video (resto de los 30 pts)
+- Loop de terminal (`agent/agent.py`): lee input del usuario en bucle, corta con `Bye` (case-insensitive) o `Ctrl-C` (manejar `KeyboardInterrupt` con salida limpia).
+- Integra la tool de Persona B con el cliente del LLM (`agent/llm_client.py`) y arma el flujo completo de function calling.
+- Pruebas end-to-end del agente completo (preguntas dentro y fuera del corpus).
 - Responsable de grabar el **video** corto (carga + preguntas variadas: dentro del corpus, fuera del corpus, y salida con `Bye`).
+- Entregable: `python agent/agent.py` — sesión interactiva funcional + video.
 
 ### Trabajo compartido (todos)
-- Revisar el corpus real enviado por Parachute S.A. y acordar juntos el formato de preprocesamiento antes de que Persona B lo implemente (evita retrabajo).
+- Revisar el corpus real enviado por Parachute S.A. y acordar juntos el formato de preprocesamiento antes de que Persona A lo implemente (evita retrabajo).
 - Pruebas cruzadas: cada persona prueba el módulo de otro compañero antes de integrar a `develop`.
 - Actualizar el README conforme cada módulo quede listo.
 - Code review vía Pull Request de cada rama de feature hacia `develop` (no commits directos a `main`).
@@ -93,8 +101,9 @@ ai_engineering-hoja-4/
 main
  └── develop
       ├── feature/infra-pgvector       (Persona A)
-      ├── feature/loader-embeddings    (Persona B)
-      └── feature/agent-tool-calling   (Persona C)
+      ├── feature/loader-embeddings    (Persona A)
+      ├── feature/agent-tool           (Persona B)
+      └── feature/agent-loop           (Persona C)
 ```
 
 - Cada feature branch nace de `develop` y se mergea de vuelta a `develop` vía PR.
@@ -103,14 +112,15 @@ main
 
 ## 7. Cronograma sugerido (orientativo)
 
-| Etapa | Contenido | Bloqueante para |
-|---|---|---|
-| 1. Kickoff | Decisiones técnicas (sección 4), reparto confirmado | Todo lo demás |
-| 2. Infra lista | `docker compose up -d` levanta Postgres+pgvector, tabla creada | Script de carga y agente |
-| 3. Carga lista | Corpus preprocesado + embeddings cargados en la BD | Pruebas del agente |
-| 4. Agente lista | Tool conectada, loop funcionando, filtro de "no lo sé" | Grabación del video |
-| 5. Integración | Merge de las 3 ramas a `develop`, pruebas end-to-end | Merge a `main` |
-| 6. Entrega | README final, video grabado, merge a `main`, entrega | — |
+| Etapa | Contenido | Responsable principal | Bloqueante para |
+|---|---|---|---|
+| 1. Kickoff | Decisiones técnicas (sección 4), reparto confirmado | Todos | Todo lo demás |
+| 2. Infra lista | `docker compose up -d` levanta Postgres+pgvector, tabla creada | Persona A | Script de carga y agente |
+| 3. Carga lista | Corpus preprocesado + embeddings cargados en la BD | Persona A | Pruebas del agente |
+| 4. Tool lista | `search_faq` conectada a pgvector, probada con queries sueltas | Persona B | Integración del agente |
+| 5. Agente lista | Loop de terminal, integración con la tool, filtro de "no lo sé" | Persona C | Grabación del video |
+| 6. Integración | Merge de las ramas a `develop`, pruebas end-to-end | Todos | Merge a `main` |
+| 7. Entrega | README final, video grabado, merge a `main`, entrega | Todos | — |
 
 ## 8. Checklist de entrega final
 
