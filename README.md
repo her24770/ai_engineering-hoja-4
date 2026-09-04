@@ -2,14 +2,102 @@
 
 Hoja de trabajo #4 — Herramientas (bases de datos vectoriales + tools/function calling) — CC3116, UVG.
 
-> **Estado:** en planificación. Ver [PLAN.md](./PLAN.md) para el plan de acción y la división de trabajo del equipo.
+> **Estado:** infraestructura (pgvector) y script de carga listos (trabajo de Persona A). El agente (tool/function calling) está pendiente. Ver [PLAN.md](./PLAN.md) para el plan de acción y la división de trabajo del equipo.
+
+## Estructura del proyecto
+
+```
+ai_engineering-hoja-4/
+├── docker-compose.yml      # PostgreSQL + pgvector en contenedor
+├── db/
+│   └── init.sql            # crea la extensión vector y la tabla `faqs`
+├── data/
+│   ├── Corpus_FAQs_Parachute_SA_2026.txt   # corpus original entregado por Parachute S.A.
+│   └── faqs_clean.jsonl    # (generado) corpus preprocesado, un JSON por línea
+├── loader/
+│   ├── preprocess.py       # parsea el .txt a registros estructurados
+│   ├── db.py                # conexión a Postgres/pgvector
+│   └── load_embeddings.py  # genera embeddings y los carga a la base de datos
+├── tests/
+│   ├── test_preprocess.py       # tests unitarios del parser (no requieren BD)
+│   └── test_load_embeddings.py  # tests de integración contra pgvector ya cargado
+├── requirements.txt
+└── .env.example
+```
+
+## Requisitos previos
+
+- **Docker** (o Podman) con soporte para `docker compose`. En macOS con Colima: `colima start`.
+- **Python 3.9+**.
 
 ## Cómo inicializar la infraestructura
 
-> Pendiente de completar conforme se implemente `docker-compose.yml` y `db/init.sql` (ver [PLAN.md](./PLAN.md), sección de Persona A). Aquí quedará documentado:
-> - Cómo levantar el contenedor de PostgreSQL + pgvector (Docker o Podman).
-> - Cómo ejecutar el script de carga de embeddings.
-> - Cómo ejecutar el agente de preguntas frecuentes.
+1. Copiar el archivo de variables de entorno de ejemplo:
+
+   ```bash
+   cp .env.example .env
+   ```
+
+2. Levantar el contenedor de PostgreSQL + pgvector:
+
+   ```bash
+   docker-compose up -d
+   ```
+
+   Esto crea automáticamente (vía `db/init.sql`, montado en `docker-entrypoint-initdb.d`):
+   - La extensión `vector` (pgvector).
+   - La tabla `faqs(id, faq_code, category, question, answer, metadata, embedding vector(384))`.
+   - Un índice HNSW (`faqs_embedding_hnsw_idx`) para búsquedas por similitud coseno.
+
+3. Verificar que el contenedor esté sano:
+
+   ```bash
+   docker ps --filter name=parachute-pgvector
+   docker exec parachute-pgvector psql -U parachute -d parachute_faqs -c "\dx" -c "\d faqs"
+   ```
+
+4. Para reiniciar la base de datos desde cero (borra todos los datos y vuelve a correr `init.sql`):
+
+   ```bash
+   docker-compose down -v
+   docker-compose up -d
+   ```
+
+## Cómo instalar las dependencias de Python
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+## Cómo correr el script de carga
+
+Con el contenedor de PostgreSQL ya levantado (paso anterior):
+
+```bash
+source .venv/bin/activate
+python loader/load_embeddings.py
+```
+
+Esto:
+1. Parsea `data/Corpus_FAQs_Parachute_SA_2026.txt` (120 FAQs) y guarda una versión limpia en `data/faqs_clean.jsonl`.
+2. Genera un embedding por cada pregunta con `sentence-transformers` (modelo `all-MiniLM-L6-v2`, 384 dimensiones).
+3. Vacía la tabla `faqs` (`TRUNCATE`) y la vuelve a poblar — el script se puede correr las veces que sea necesario sin duplicar datos.
+
+## Cómo correr los tests
+
+```bash
+source .venv/bin/activate
+pytest tests/ -v
+```
+
+- `test_preprocess.py` no necesita base de datos: valida que el corpus se parsea completo (120 FAQs, códigos únicos, campos no vacíos).
+- `test_load_embeddings.py` sí necesita el contenedor levantado **y** el script de carga ya ejecutado: valida el conteo de filas, la dimensión de los embeddings, y que una búsqueda por similitud (`<=>`, distancia coseno de pgvector) sobre una pregunta parafraseada devuelva el FAQ correcto.
+
+## Agente (pendiente)
+
+El agente de preguntas frecuentes (tool/function calling contra esta base de datos) está pendiente — es el trabajo de Personas B y C (ver [PLAN.md](./PLAN.md)). Esta sección se actualizará con las instrucciones para ejecutarlo cuando esté listo.
 
 ## Enunciado original del laboratorio
 
