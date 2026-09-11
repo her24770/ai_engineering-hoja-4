@@ -2,7 +2,7 @@
 
 Hoja de trabajo #4 — Herramientas (bases de datos vectoriales + tools/function calling) — CC3116, UVG.
 
-> **Estado:** infraestructura (pgvector) y script de carga listos (trabajo de Persona A). El agente (tool/function calling) está pendiente. Ver [PLAN.md](./PLAN.md) para el plan de acción y la división de trabajo del equipo.
+> **Estado:** infraestructura (pgvector) y script de carga listos (trabajo de Persona A). Tool de búsqueda de conocimiento `search_faq` y schemas listos (trabajo de Persona B). Loop de terminal e integración final del agente en desarrollo (trabajo de Persona C). Ver [PLAN.md](./PLAN.md) para el plan de acción y la división de trabajo del equipo.
 
 ## Estructura del proyecto
 
@@ -18,9 +18,12 @@ ai_engineering-hoja-4/
 │   ├── preprocess.py       # parsea el .txt a registros estructurados
 │   ├── db.py                # conexión a Postgres/pgvector
 │   └── load_embeddings.py  # genera embeddings y los carga a la base de datos
+├── agent/
+│   └── tools.py            # definición de la tool search_faq, handler con pgvector y system prompt
 ├── tests/
 │   ├── test_preprocess.py       # tests unitarios del parser (no requieren BD)
-│   └── test_load_embeddings.py  # tests de integración contra pgvector ya cargado
+│   ├── test_load_embeddings.py  # tests de integración contra pgvector ya cargado
+│   └── test_tools.py            # tests unitarios y de integración de la tool search_faq
 ├── requirements.txt
 └── .env.example
 ```
@@ -94,10 +97,30 @@ pytest tests/ -v
 
 - `test_preprocess.py` no necesita base de datos: valida que el corpus se parsea completo (120 FAQs, códigos únicos, campos no vacíos).
 - `test_load_embeddings.py` sí necesita el contenedor levantado **y** el script de carga ya ejecutado: valida el conteo de filas, la dimensión de los embeddings, y que una búsqueda por similitud (`<=>`, distancia coseno de pgvector) sobre una pregunta parafraseada devuelva el FAQ correcto.
+- `test_tools.py` incluye tests unitarios para los esquemas de tools (OpenAI / Anthropic), directrices del prompt del sistema, formateo de resultados y ejecución mockeada de `search_faq`. Además, incluye un test de integración contra la base de datos real (que se omite limpiamente si Postgres no está en ejecución).
 
-## Agente (pendiente)
+## Agente (Tool de Búsqueda y Function Calling)
 
-El agente de preguntas frecuentes (tool/function calling contra esta base de datos) está pendiente — es el trabajo de Personas B y C (ver [PLAN.md](./PLAN.md)). Esta sección se actualizará con las instrucciones para ejecutarlo cuando esté listo.
+El módulo `agent/` contiene los componentes del asistente conversacional de Parachute S.A.:
+
+### 1. Tool de búsqueda de conocimiento (`agent/tools.py`)
+Implementado por **Persona B**. Provee:
+- **`search_faq(query: str, top_k: int = 3, max_distance: float = 0.55)`**: Recibe la pregunta en texto, genera su embedding mediante `sentence-transformers` (`all-MiniLM-L6-v2`, con normalización) y ejecuta una consulta SQL con el operador de distancia coseno de pgvector (`<=>`) sobre la tabla `faqs`.
+- **Definición de la Tool (Schemas)**:
+  - `SEARCH_FAQ_TOOL_OPENAI`: compatible con la API de tools / function calling de OpenAI, Ollama o LiteLLM.
+  - `SEARCH_FAQ_TOOL_ANTHROPIC`: compatible con la API de Tool Use de Anthropic Claude.
+- **`SYSTEM_PROMPT`**: Instrucciones estrictas que obligan al LLM a consultar `search_faq`, prohibiendo alucinaciones y forzando a admitir cuando no se tiene información.
+- **`format_search_results(results)`**: Utilidad para formatear los resultados encontrados en texto claro para el LLM.
+
+#### Cómo probar la tool individualmente:
+Con la base de datos levantada y cargada:
+```bash
+python agent/tools.py "¿Dónde se realizan los saltos?"
+```
+
+### 2. Loop de terminal e integración (`agent/agent.py`)
+Pendiente de integración por **Persona C** (gestión del bucle interactivo de terminal, llamadas al cliente LLM y corte de sesión con `Bye` o `Ctrl-C`).
+
 
 ## Enunciado original del laboratorio
 
