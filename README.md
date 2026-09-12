@@ -2,7 +2,9 @@
 
 Hoja de trabajo #4 — Herramientas (bases de datos vectoriales + tools/function calling) — CC3116, UVG.
 
-> **Estado:** infraestructura (pgvector) y script de carga listos (trabajo de Persona A). Tool de búsqueda de conocimiento `search_faq` y schemas listos (trabajo de Persona B). Loop de terminal e integración final del agente en desarrollo (trabajo de Persona C). Ver [PLAN.md](./PLAN.md) para el plan de acción y la división de trabajo del equipo.
+## Video de demostración
+
+[![Demo del agente Parachute S.A.](https://img.youtube.com/vi/PZP9XT4yhNo/0.jpg)](https://youtu.be/PZP9XT4yhNo)
 
 ## Estructura del proyecto
 
@@ -19,7 +21,8 @@ ai_engineering-hoja-4/
 │   ├── db.py                # conexión a Postgres/pgvector
 │   └── load_embeddings.py  # genera embeddings y los carga a la base de datos
 ├── agent/
-│   └── tools.py            # definición de la tool search_faq, handler con pgvector y system prompt
+│   ├──  tools.py            # definición de la tool search_faq, handler con pgvector y system prompt
+|   └──  agent.py            #
 ├── tests/
 │   ├── test_preprocess.py       # tests unitarios del parser (no requieren BD)
 │   ├── test_load_embeddings.py  # tests de integración contra pgvector ya cargado
@@ -104,7 +107,7 @@ pytest tests/ -v
 El módulo `agent/` contiene los componentes del asistente conversacional de Parachute S.A.:
 
 ### 1. Tool de búsqueda de conocimiento (`agent/tools.py`)
-Implementado por **Persona B**. Provee:
+Provee:
 - **`search_faq(query: str, top_k: int = 3, max_distance: float = 0.55)`**: Recibe la pregunta en texto, genera su embedding mediante `sentence-transformers` (`all-MiniLM-L6-v2`, con normalización) y ejecuta una consulta SQL con el operador de distancia coseno de pgvector (`<=>`) sobre la tabla `faqs`.
 - **Definición de la Tool (Schemas)**:
   - `SEARCH_FAQ_TOOL_OPENAI`: compatible con la API de tools / function calling de OpenAI, Ollama o LiteLLM.
@@ -119,7 +122,13 @@ python agent/tools.py "¿Dónde se realizan los saltos?"
 ```
 
 ### 2. Loop de terminal e integración (`agent/agent.py`)
-Pendiente de integración por **Persona C** (gestión del bucle interactivo de terminal, llamadas al cliente LLM y corte de sesión con `Bye` o `Ctrl-C`).
+Gestiona el bucle interactivo de terminal, las llamadas al cliente LLM y el corte de sesión con `Bye` o `Ctrl-C`.
+
+#### Cómo correr el agente:
+Con la base de datos levantada y cargada:
+```bash
+python agent/agent.py
+```
 
 
 ## Enunciado original del laboratorio
