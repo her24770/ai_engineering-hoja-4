@@ -3,19 +3,19 @@ import os
 import sys
 
 from dotenv import load_dotenv
-from groq import BadRequestError, Groq
+from openai import BadRequestError, OpenAI
 from tools import SEARCH_FAQ_TOOL_DEFINITION, SYSTEM_PROMPT, format_search_results, get_embedding_model, search_faq
 
-MODEL = "openai/gpt-oss-120b"
+MODEL = "gpt-4o-mini"
 AVAILABLE_TOOLS = {"search_faq": search_faq}
 
 def main() -> None:
     sys.stdout.reconfigure(encoding="utf-8")
     load_dotenv()
-    if not os.getenv("GROQ_API_KEY"):
-        sys.exit("Falta GROQ_API_KEY")
+    if not os.getenv("OPENAI_API_KEY"):
+        sys.exit("Falta OPENAI_API_KEY")
 
-    client = Groq()
+    client = OpenAI()
 
     print("Cargando modelo de embeddings...")
     get_embedding_model()
@@ -49,7 +49,7 @@ def main() -> None:
         print(f"\n{respuesta}\n")
 
 
-def ask_llm(client: Groq, messages: list[dict], force_tool: bool = False) -> str:
+def ask_llm(client: OpenAI, messages: list[dict], force_tool: bool = False) -> str:
     tool_choice = (
         {"type": "function", "function": {"name": "search_faq"}}
         if force_tool
@@ -62,7 +62,6 @@ def ask_llm(client: Groq, messages: list[dict], force_tool: bool = False) -> str
             tools=[SEARCH_FAQ_TOOL_DEFINITION],
             tool_choice=tool_choice,
             temperature=0,
-            reasoning_format="hidden",
         )
     except BadRequestError:
         if not force_tool:
