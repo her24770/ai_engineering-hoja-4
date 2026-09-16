@@ -3,7 +3,10 @@ import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from unittest.mock import patch
-from agent.tools_weather import check_weather
+try:
+    from agent.tools_weather import check_weather
+except (ModuleNotFoundError, AttributeError):
+    from tools_weather import check_weather
 
 def test_check_weather_past_date():
     """Prueba que retorne error si la fecha está en el pasado."""
@@ -15,7 +18,7 @@ def test_check_weather_too_far_future():
     result = check_weather("2099-01-01")
     assert "Open-Meteo sólo provee hasta 16 días" in result
 
-@patch('agent.tools_weather.requests.get')
+@patch('tools_weather.requests.get')
 def test_check_weather_ideal_conditions(mock_get):
     """Prueba que el reporte sea IDEAL con condiciones óptimas."""
     import datetime
@@ -54,7 +57,7 @@ def test_check_weather_ideal_conditions(mock_get):
     assert "IDEAL" in result
     assert "óptimas" in result
 
-@patch('agent.tools_weather.requests.get')
+@patch('tools_weather.requests.get')
 def test_check_weather_prohibited_wind(mock_get):
     """Prueba que el reporte sea PROHIBIDO si el viento es mayor a 28."""
     import datetime
