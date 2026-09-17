@@ -13,16 +13,8 @@ def _search_faq_handler(query: str) -> str:
     return format_search_results(results)
 
 
-def main() -> None:
-    sys.stdout.reconfigure(encoding="utf-8")
-    load_dotenv()
-
-    if not os.getenv("OPENAI_API_KEY"):
-        sys.exit("Falta OPENAI_API_KEY en .env")
-
-    print("Cargando modelo de embeddings para FAQ...")
-    get_embedding_model()
-
+def create_hierarchical_agents() -> tuple[Agent, Agent, Agent, Agent, Agent]:
+    """Crea y configura la jerarquía de 3 niveles usando as_tool()."""
     search_faq_tool = function_tool(
         _search_faq_handler,
         name_override="search_faq",
@@ -83,6 +75,21 @@ def main() -> None:
             operations_manager.as_tool(tool_name="operations_manager", tool_description="Departamento de Operaciones: verifica el clima y calendariza citas para saltos en paracaídas")
         ]
     )
+
+    return director_agent, customer_service_manager, operations_manager, faq_agent, weather_agent
+
+
+def main() -> None:
+    sys.stdout.reconfigure(encoding="utf-8")
+    load_dotenv()
+
+    if not os.getenv("OPENAI_API_KEY"):
+        sys.exit("Falta OPENAI_API_KEY en .env")
+
+    print("Cargando modelo de embeddings para FAQ...")
+    get_embedding_model()
+
+    director_agent, _, _, _, _ = create_hierarchical_agents()
 
     print("\n--- Arquitectura Jerárquica Inicializada ---")
     print("Director Agent listo. Delega a Customer Service Manager u Operations Manager según la petición.")
