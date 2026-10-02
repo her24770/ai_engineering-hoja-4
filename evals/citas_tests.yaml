@@ -1,0 +1,26 @@
+# Test cases de la funcionalidad de citas/clima (Persona C).
+#
+# Cada test debe incluir, como mínimo, estos asserts:
+#   - type: latency        -> rendimiento (esta tool pega a una API externa de clima, puede ser más lenta)
+#   - type: python          -> tool execution (verificar que se llamó weather_worker)
+#   - type: contains/regex  -> determinístico (status esperado: IDEAL/MARGINAL/NO SEGURO, formato de fecha, etc.)
+#   - type: llm-rubric      -> factuality (el status reportado debe concordar con los datos del pronóstico)
+#
+# Casos borde a cubrir: fecha pasada, fecha a más de 16 días, formato de fecha inválido.
+#
+# El provider expone en context['metadata']:
+#   tool_names: lista de nombres de tools invocadas por el Manager (ej. "weather_worker")
+#   tool_calls: lista de {name, arguments} con detalle completo
+#   latency_ms: latencia medida manualmente (alternativa al assert nativo "latency")
+#
+# El assert de tool execution usa la función compartida asserts.py:used_tool, que
+# lee vars.expected_tool -- siempre agrégalo en cada test case.
+
+- vars:
+    inquiry: "¿El próximo sábado es buen día para saltar?"
+    expected_tool: "weather_worker"
+  assert:
+    - type: latency
+      threshold: 60000
+    - type: python
+      value: "file://asserts.py:used_tool"

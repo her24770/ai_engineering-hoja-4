@@ -15,21 +15,9 @@ defaultTest:
     # Umbral de latencia por defecto en ms; cada test puede sobreescribirlo.
     maxLatencyMs: 60000
 
+# Cada archivo contiene los test cases de una funcionalidad (ver comentarios dentro
+# de cada uno para la plantilla de asserts esperada: factuality, determinístico,
+# latencia y tool execution).
 tests:
-  # Ejemplo FAQ: Persona B agregará sus casos en faq_tests.yaml
-  - vars:
-      inquiry: "¿Cuál es el precio de un salto en tándem?"
-    assert:
-      - type: latency
-        threshold: 60000
-      - type: python
-        value: "'faq_worker' in context['metadata']['tool_names']"
-
-  # Ejemplo clima/citas: Persona C agregará sus casos en citas_tests.yaml
-  - vars:
-      inquiry: "¿El próximo sábado es buen día para saltar?"
-    assert:
-      - type: latency
-        threshold: 60000
-      - type: python
-        value: "'weather_worker' in context['metadata']['tool_names']"
+  - file://faq_tests.yaml
+  - file://citas_tests.yaml
