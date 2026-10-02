@@ -1,3 +1,4 @@
+import datetime
 import os
 import sys
 from dotenv import load_dotenv
@@ -17,6 +18,9 @@ def _search_faq_handler(query: str) -> str:
 
 def _build_manager_agent() -> Agent:
     """Construye el Manager Agent (arquitectura centralizada) y sus workers."""
+    today_str = datetime.date.today().isoformat()
+    weekday_str = datetime.date.today().strftime("%A")
+
     search_faq_tool = function_tool(
         _search_faq_handler,
         name_override="search_faq",
@@ -32,7 +36,13 @@ def _build_manager_agent() -> Agent:
 
     weather_agent = Agent(
         name="Weather and Scheduling Worker",
-        instructions="Eres un agente especializado en verificar el clima y calendarizar citas para saltos en paracaídas de Parachute S.A. Utiliza tu herramienta 'check_weather' pasándole una fecha en formato YYYY-MM-DD para saber si las condiciones son APTAS, MARGINALES o PROHIBIDAS, e informa al usuario basándote en el resultado.",
+        instructions=(
+            f"Hoy es {today_str} ({weekday_str}). Usa siempre esta fecha como referencia real "
+            "para resolver cualquier expresión relativa del usuario ('mañana', 'este fin de semana', "
+            "'el próximo sábado', 'en una semana', etc.) y calcula la fecha exacta en formato YYYY-MM-DD "
+            "a partir de ella; nunca asumas ni inventes otro año o mes. "
+            "Eres un agente especializado en verificar el clima y calendarizar citas para saltos en paracaídas de Parachute S.A. Utiliza tu herramienta 'check_weather' pasándole la fecha calculada en formato YYYY-MM-DD para saber si las condiciones son APTAS, MARGINALES o PROHIBIDAS, e informa al usuario basándote en el resultado."
+        ),
         tools=[function_tool(check_weather)]
     )
 
@@ -40,10 +50,13 @@ def _build_manager_agent() -> Agent:
     manager_agent = Agent(
         name="Manager Agent",
         instructions=(
+            f"Hoy es {today_str} ({weekday_str}). "
             "Eres el supervisor principal de atención al cliente de Parachute S.A. "
             "Tu deber es enrutar las peticiones de los usuarios al agente correcto usando tus herramientas. "
-            "Si el usuario tiene una duda general sobre el servicio, normas o FAQs, utiliza la herramienta del FAQ Worker. "
-            "Si el usuario quiere saber si un día específico es bueno para saltar o quiere calendarizar, utiliza la herramienta del Weather Worker. "
+            "Si el usuario tiene una duda general sobre el servicio, normas, políticas o precios, utiliza la herramienta del FAQ Worker. "
+            "Si el usuario menciona una fecha (explícita o relativa, como 'mañana', 'este fin de semana', 'el próximo sábado', "
+            "'quiero agendar/calendarizar'), o quiere saber si un día es bueno para saltar, utiliza SIEMPRE la herramienta del Weather Worker "
+            "y déjale a él el cálculo de la fecha exacta. "
             "Siempre responde de forma amable y delega el trabajo al worker adecuado."
         ),
         tools=[
