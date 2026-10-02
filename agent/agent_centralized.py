@@ -14,16 +14,9 @@ def _search_faq_handler(query: str) -> str:
     results = search_faq(query)
     return format_search_results(results)
 
-def main() -> None:
-    sys.stdout.reconfigure(encoding="utf-8")
-    load_dotenv()
-    
-    if not os.getenv("OPENAI_API_KEY"):
-        sys.exit("Falta OPENAI_API_KEY en .env")
 
-    print("Cargando modelo de embeddings para FAQ...")
-    get_embedding_model()
-
+def _build_manager_agent() -> Agent:
+    """Construye el Manager Agent (arquitectura centralizada) y sus workers."""
     search_faq_tool = function_tool(
         _search_faq_handler,
         name_override="search_faq",
@@ -36,7 +29,7 @@ def main() -> None:
         instructions="Eres un agente de base de conocimiento especializado en responder preguntas frecuentes de Parachute S.A. Utiliza tu herramienta 'search_faq' para buscar en la base de datos vectorial y proveer respuestas precisas. No debes invocar al clima.",
         tools=[search_faq_tool]
     )
-    
+
     weather_agent = Agent(
         name="Weather and Scheduling Worker",
         instructions="Eres un agente especializado en verificar el clima y calendarizar citas para saltos en paracaídas de Parachute S.A. Utiliza tu herramienta 'check_weather' pasándole una fecha en formato YYYY-MM-DD para saber si las condiciones son APTAS, MARGINALES o PROHIBIDAS, e informa al usuario basándote en el resultado.",
@@ -58,6 +51,59 @@ def main() -> None:
             weather_agent.as_tool(tool_name="weather_worker", tool_description="Verifica el clima y evalúa fechas para saltos en paracaídas")
         ]
     )
+    return manager_agent
+
+
+_manager_agent: Agent | None = None
+
+
+def get_manager_agent() -> Agent:
+    """Construye (una sola vez por proceso) y devuelve el Manager Agent."""
+    global _manager_agent
+    if _manager_agent is None:
+        get_embedding_model()
+        _manager_agent = _build_manager_agent()
+    return _manager_agent
+
+
+def run_query(pregunta: str) -> dict:
+    """Ejecuta una pregunta contra el Manager Agent y devuelve la respuesta final
+    junto con el registro de tool calls realizadas (para evals de tool execution).
+
+    Returns:
+        dict con:
+            final_output: str, la respuesta final del agente.
+            tool_calls: list[dict], cada uno con 'name' y 'arguments' (JSON string)
+                de las herramientas invocadas, en el orden en que ocurrieron.
+    """
+    load_dotenv()
+    manager_agent = get_manager_agent()
+    runner = Runner()
+    result = runner.run_sync(starting_agent=manager_agent, input=pregunta)
+
+    tool_calls = []
+    for item in result.new_items:
+        if item.type == "tool_call_item":
+            tool_calls.append({
+                "name": getattr(item.raw_item, "name", None),
+                "arguments": getattr(item.raw_item, "arguments", None),
+            })
+
+    return {
+        "final_output": result.final_output,
+        "tool_calls": tool_calls,
+    }
+
+
+def main() -> None:
+    sys.stdout.reconfigure(encoding="utf-8")
+    load_dotenv()
+
+    if not os.getenv("OPENAI_API_KEY"):
+        sys.exit("Falta OPENAI_API_KEY en .env")
+
+    print("Cargando modelo de embeddings para FAQ...")
+    manager_agent = get_manager_agent()
 
     print("\n--- Arquitectura Centralizada Inicializada ---")
     print("Manager Agent listo. Puedes hacerle preguntas de FAQs o preguntarle sobre el clima para un día específico.")
