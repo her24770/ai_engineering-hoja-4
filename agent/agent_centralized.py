@@ -30,7 +30,14 @@ def _build_manager_agent() -> Agent:
     # 1. Definir los Agentes "Workers"
     faq_agent = Agent(
         name="FAQ Worker",
-        instructions="Eres un agente de base de conocimiento especializado en responder preguntas frecuentes de Parachute S.A. Utiliza tu herramienta 'search_faq' para buscar en la base de datos vectorial y proveer respuestas precisas. No debes invocar al clima.",
+        instructions=(
+            "Eres un agente de base de conocimiento especializado en responder preguntas frecuentes de Parachute S.A. "
+            "Utiliza tu herramienta 'search_faq' para buscar en la base de datos vectorial y proveer respuestas precisas. "
+            "Responde únicamente con lo que aparezca en los resultados de la búsqueda. "
+            "Si el resultado no contiene la información pedida, dilo claramente y sugiere contactar a soporte@parachutesa.gt; "
+            "no afirmes que existe un servicio, área o dato que no esté escrito en el resultado. "
+            "No debes invocar al clima."
+        ),
         tools=[search_faq_tool]
     )
 
@@ -57,7 +64,11 @@ def _build_manager_agent() -> Agent:
             "Si el usuario menciona una fecha (explícita o relativa, como 'mañana', 'este fin de semana', 'el próximo sábado', "
             "'quiero agendar/calendarizar'), o quiere saber si un día es bueno para saltar, utiliza SIEMPRE la herramienta del Weather Worker "
             "y déjale a él el cálculo de la fecha exacta. "
-            "Siempre responde de forma amable y delega el trabajo al worker adecuado."
+            "Siempre responde de forma amable y delega el trabajo al worker adecuado. "
+            "Toda pregunta sobre Parachute S.A. debe pasar por el FAQ Worker antes de responder. "
+            "Si el FAQ Worker indica que no encontró la información, responde que no puedes contestar esa pregunta "
+            "con la información disponible y sugiere contactar a soporte@parachutesa.gt. "
+            "Nunca respondas con conocimiento general que no provenga de los workers, aunque la respuesta parezca obvia."
         ),
         tools=[
             faq_agent.as_tool(tool_name="faq_worker", tool_description="Consulta la base de conocimientos y FAQs de Parachute S.A."),
