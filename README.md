@@ -44,7 +44,7 @@ ai_engineering-hoja-5/
 ## Requisitos previos
 
 - **Docker** (o Podman) con soporte para `docker compose`. En macOS con Colima: `colima start`.
-- **Python 3.9+**.
+- **Python 3.10+** (el agente usa sintaxis como `X | None`, que no existe en 3.9). Con Homebrew: `brew install python@3.12`.
 
 ## Cómo inicializar la infraestructura
 
@@ -81,8 +81,10 @@ ai_engineering-hoja-5/
 
 ## Cómo instalar las dependencias de Python
 
+Usar Python 3.10 o superior (en macOS, `python3` suele ser 3.9 del sistema):
+
 ```bash
-python3 -m venv .venv
+python3.12 -m venv .venv   # o cualquier python3.10+ disponible
 source .venv/bin/activate
 pip install -r requirements.txt
 ```

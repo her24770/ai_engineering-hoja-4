@@ -5,11 +5,20 @@ que cubre sus dos funcionalidades: FAQs (RAG sobre pgvector) y citas/clima (Open
 
 ## Requisitos antes de correr
 
-1. Levantar la base de datos del proyecto:
+1. **Python 3.10 o superior** para el agente (`agent/agent_centralized.py` usa `X | None`).
+   Con Homebrew: `brew install python@3.12`, y crear el venv con esa versión:
+   ```bash
+   /opt/homebrew/bin/python3.12 -m venv .venv
+   source .venv/bin/activate
+   pip install -r requirements.txt
+   ```
+2. **promptfoo** (Node 18+): `npm i -g promptfoo`.
+3. Levantar la base de datos del proyecto:
    ```bash
    docker compose up -d
    ```
-2. Que la tabla `faqs` esté pobladas: ver `loader/load_embeddings.py`.
+4. Que la tabla `faqs` esté poblada: `python loader/load_embeddings.py`.
+5. Poner una `OPENAI_API_KEY` válida en `.env`. La usan el agente y el juez de los asserts `llm-rubric`.
 
 ## Cómo correr los evals
 
@@ -17,6 +26,12 @@ Desde esta carpeta (`evals/`):
 
 ```bash
 promptfoo eval --env-file ../.env
+```
+
+Para generar el archivo de reporte que se entrega (HTML):
+
+```bash
+promptfoo eval --env-file ../.env -o ../reports/promptfoo-report.html
 ```
 
 Para ver los resultados en el navegador:

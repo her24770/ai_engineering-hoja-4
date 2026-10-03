@@ -13,12 +13,94 @@
 #
 # El assert de tool execution usa la función compartida asserts.py:used_tool, que
 # lee vars.expected_tool -- siempre agrégalo en cada test case.
+#
+# Los hechos esperados salen de data/Corpus_FAQs_Parachute_SA_2026.txt (ver FAQ-XXX
+# en cada comentario). Las regex de JavaScript (promptfoo) no admiten (?i), por eso
+# usamos icontains/not-icontains cuando hace falta ignorar mayúsculas.
 
+# --- Casos dentro del corpus -------------------------------------------------
+
+# FAQ-021: límite de peso de 100 kg
 - vars:
-    inquiry: "¿Cuál es el precio de un salto en tándem?"
+    inquiry: "¿Cuál es el peso máximo permitido para saltar?"
     expected_tool: "faq_worker"
   assert:
     - type: latency
       threshold: 60000
     - type: python
       value: "file://asserts.py:used_tool"
+    - type: regex
+      value: "100\\s?kg"
+    - type: llm-rubric
+      value: "La respuesta debe indicar que el peso máximo para el salto tándem es de 100 kg, y no debe inventar otro límite."
+
+# FAQ-023: edad mínima de 18 años
+- vars:
+    inquiry: "¿Cuál es la edad mínima para realizar un salto?"
+    expected_tool: "faq_worker"
+  assert:
+    - type: latency
+      threshold: 60000
+    - type: python
+      value: "file://asserts.py:used_tool"
+    - type: icontains
+      value: "18 años"
+    - type: llm-rubric
+      value: "La respuesta debe indicar que la edad mínima es de 18 años y, si menciona a menores de 16 y 17 años, debe aclarar que requieren ir acompañados de ambos padres o tutores legales."
+
+# FAQ-053: velocidad en caída libre de 200 km/h
+- vars:
+    inquiry: "¿Qué velocidad se alcanza durante la caída libre?"
+    expected_tool: "faq_worker"
+  assert:
+    - type: latency
+      threshold: 60000
+    - type: python
+      value: "file://asserts.py:used_tool"
+    - type: regex
+      value: "200\\s?km/?h"
+    - type: llm-rubric
+      value: "La respuesta debe indicar una velocidad terminal promedio de 200 km/h durante la caída libre, y no debe presentar otra cifra como dato oficial."
+
+# FAQ-074: recargo de Q250 por peso entre 90 y 100 kg
+- vars:
+    inquiry: "¿Hay costos adicionales por exceso de peso?"
+    expected_tool: "faq_worker"
+  assert:
+    - type: latency
+      threshold: 60000
+    - type: python
+      value: "file://asserts.py:used_tool"
+    - type: contains
+      value: "Q250"
+    - type: llm-rubric
+      value: "La respuesta debe indicar un recargo administrativo de Q250 cuando el peso está entre 90 kg y 100 kg, y no debe indicar cobros adicionales que no estén en la FAQ."
+
+# FAQ genérica (respuesta sin cifras): el agente debe remitir a soporte y no inventar datos
+- vars:
+    inquiry: "¿Hay zona de espectadores?"
+    expected_tool: "faq_worker"
+  assert:
+    - type: latency
+      threshold: 60000
+    - type: python
+      value: "file://asserts.py:used_tool"
+    - type: icontains
+      value: "soporte@parachutesa.gt"
+    - type: llm-rubric
+      value: "La respuesta no debe afirmar detalles concretos (áreas, capacidades, horarios) que no aparezcan en la FAQ; debe indicar que el usuario consulte con la central de atención al cliente o soporte@parachutesa.gt."
+
+# --- Caso fuera del corpus: el agente debe admitir que no puede responder ----
+
+- vars:
+    inquiry: "¿Cuál es la capital de Francia?"
+    expected_tool: "faq_worker"
+  assert:
+    - type: latency
+      threshold: 60000
+    - type: python
+      value: "file://asserts.py:used_tool"
+    - type: not-icontains
+      value: "París"
+    - type: llm-rubric
+      value: "La respuesta debe indicar que no puede responder la pregunta con la información disponible de Parachute S.A., y no debe responder con datos de fuera del corpus (como la capital de Francia)."
