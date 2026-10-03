@@ -1,0 +1,23 @@
+# yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
+
+# Learn more about building a configuration: https://promptfoo.dev/docs/configuration/guide
+
+description: "Evals del Manager Agent de Parachute S.A. (FAQs + clima/citas)"
+
+prompts:
+  - "{{inquiry}}"
+
+providers:
+  - id: "file://provider.py"
+
+defaultTest:
+  options:
+    # Umbral de latencia por defecto en ms; cada test puede sobreescribirlo.
+    maxLatencyMs: 60000
+
+# Cada archivo contiene los test cases de una funcionalidad (ver comentarios dentro
+# de cada uno para la plantilla de asserts esperada: factuality, determinístico,
+# latencia y tool execution).
+tests:
+  - file://faq_tests.yaml
+  - file://citas_tests.yaml
