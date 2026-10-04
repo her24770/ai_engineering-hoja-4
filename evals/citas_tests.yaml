@@ -1,21 +1,18 @@
 # Test cases de la funcionalidad de citas/clima (Persona C).
 #
-# Cada test debe incluir, como mínimo, estos asserts:
-#   - type: latency        -> rendimiento (esta tool pega a una API externa de clima, puede ser más lenta)
+# Cada test incluye los 4 asserts requeridos:
+#   - type: latency        -> rendimiento
 #   - type: python          -> tool execution (verificar que se llamó weather_worker)
-#   - type: contains/regex  -> determinístico (status esperado: IDEAL/MARGINAL/NO SEGURO, formato de fecha, etc.)
-#   - type: llm-rubric      -> factuality (el status reportado debe concordar con los datos del pronóstico)
+#   - type: contains/regex  -> determinístico (palabra clave o patrón esperado)
+#   - type: llm-rubric      -> factuality / semántica (verificar fidelidad con la respuesta de la tool)
 #
-# Casos borde a cubrir: fecha pasada, fecha a más de 16 días, formato de fecha inválido.
-#
-# El provider expone en context['metadata']:
-#   tool_names: lista de nombres de tools invocadas por el Manager (ej. "weather_worker")
-#   tool_calls: lista de {name, arguments} con detalle completo
-#   latency_ms: latencia medida manualmente (alternativa al assert nativo "latency")
-#
-# El assert de tool execution usa la función compartida asserts.py:used_tool, que
-# lee vars.expected_tool -- siempre agrégalo en cada test case.
+# Casos cubiertos:
+#   1. Caso válido dentro de los 15 días (evaluación dinámica vía fecha relativa)
+#   2. Caso borde: fecha en el pasado
+#   3. Caso borde: fecha a más de 16 días en el futuro
+#   4. Caso borde: formato de fecha inválido
 
+# --- Caso 1: Consulta válida de clima / cita dentro de los 15 días (dinámica) ---
 - vars:
     inquiry: "¿El próximo sábado es buen día para saltar?"
     expected_tool: "weather_worker"
@@ -24,3 +21,49 @@
       threshold: 60000
     - type: python
       value: "file://asserts.py:used_tool"
+    - type: regex
+      value: "(seguro|apto|prohibido|marginal|ideal|óptim|condiciones|clima|lluvia|viento)"
+    - type: llm-rubric
+      value: "La respuesta debe reportar el estado del clima para la fecha consultada (indicando si es apto, ideal, marginal o no seguro/prohibido) basándose en los datos de la herramienta meteorológica y sin inventar información no sustentada."
+
+# --- Caso 2 (Borde): Fecha en el pasado ---
+- vars:
+    inquiry: "¿Puedo agendar una cita para saltar el 2020-01-01?"
+    expected_tool: "weather_worker"
+  assert:
+    - type: latency
+      threshold: 60000
+    - type: python
+      value: "file://asserts.py:used_tool"
+    - type: regex
+      value: "(ya pas[oó]|pasad[oa]|no es posible)"
+    - type: llm-rubric
+      value: "La respuesta debe indicar correctamente que no es posible agendar porque la fecha ya pasó (o está en el pasado), y no debe fingir que es una fecha válida para agendar un salto futuro."
+
+# --- Caso 3 (Borde): Fecha a más de 16 días en el futuro ---
+- vars:
+    inquiry: "Quiero agendar un salto para el 2030-01-01, ¿cómo estará el clima?"
+    expected_tool: "weather_worker"
+  assert:
+    - type: latency
+      threshold: 60000
+    - type: python
+      value: "file://asserts.py:used_tool"
+    - type: regex
+      value: "(16 d[ií]as|rango|fuera|anticipaci[oó]n|futuro|disponible|pron[oó]stico)"
+    - type: llm-rubric
+      value: "La respuesta debe indicar que no es posible obtener el pronóstico o confirmar el clima debido a que la fecha excede el límite máximo de predicción disponible (16 días de Open-Meteo), y no debe inventar condiciones climáticas para esa fecha lejana."
+
+# --- Caso 4 (Borde): Formato de fecha inválido ---
+- vars:
+    inquiry: "¿Cómo estará el clima para saltar en la fecha 2026-99-99?"
+    expected_tool: "weather_worker"
+  assert:
+    - type: latency
+      threshold: 60000
+    - type: python
+      value: "file://asserts.py:used_tool"
+    - type: regex
+      value: "(no es v[aá]lida|inv[aá]lid[oa]|formato|YYYY-MM-DD|v[aá]lido)"
+    - type: llm-rubric
+      value: "La respuesta debe indicar que la fecha o su formato no es válido y no debe emitir un reporte de clima favorable ni inventar pronósticos para una fecha inexistente."

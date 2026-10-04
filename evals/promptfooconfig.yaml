@@ -9,10 +9,6 @@ prompts:
 
 providers:
   - id: "file://provider.py"
-    config:
-      # Python con las dependencias del proyecto (requiere 3.10+). Sin esto promptfoo
-      # usa el `python` del PATH, que no tiene dotenv ni el agente.
-      pythonExecutable: "../.venv/bin/python"
 
 defaultTest:
   options:
