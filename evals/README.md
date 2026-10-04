@@ -6,12 +6,19 @@ que cubre sus dos funcionalidades: FAQs (RAG sobre pgvector) y citas/clima (Open
 ## Requisitos antes de correr
 
 1. **Python 3.10 o superior** para el agente (`agent/agent_centralized.py` usa `X | None`).
-   Con Homebrew: `brew install python@3.12`, y crear el venv con esa versión:
-   ```bash
-   /opt/homebrew/bin/python3.12 -m venv .venv
-   source .venv/bin/activate
-   pip install -r requirements.txt
-   ```
+   - **En Windows:**
+     ```powershell
+     python -m venv .venv
+     .\.venv\Scripts\Activate.ps1
+     pip install -r requirements.txt
+     ```
+   - **En macOS / Linux:**
+     ```bash
+     python3 -m venv .venv
+     source .venv/bin/activate
+     pip install -r requirements.txt
+     ```
+   *(Nota: Si usas un entorno virtual, asegúrate de tenerlo activado en la terminal antes de ejecutar `promptfoo`, o define la variable `PROMPTFOO_PYTHON` con la ruta de tu ejecutable).*
 2. **promptfoo** (Node 18+): `npm i -g promptfoo`.
 3. Levantar la base de datos del proyecto:
    ```bash
