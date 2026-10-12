@@ -36,6 +36,8 @@ ai_engineering-hoja-6/
 │   ├── agent_centralized.py    # Arquitectura Centralizada (Manager Agent + Workers)
 │   ├── tools.py                # Tool `search_faq` con búsqueda semántica en pgvector
 │   └── tools_weather.py        # Tool `check_weather` con integración a Open-Meteo
+├── mcp_server/
+│   └── server.py               # Servidor MCP (Streamable HTTP): search_faq + check_weather
 ├── evals/
 │   ├── promptfooconfig.yaml    # Configuración principal de promptfoo
 │   ├── provider.py             # Custom provider que conecta promptfoo con el Manager Agent
@@ -61,11 +63,50 @@ Tras evaluar las distintas alternativas de orquestación en la entrega anterior,
 - **FAQ Worker:** Especialista en base de conocimientos. Ejecuta la herramienta `search_faq` para realizar búsqueda vectorial RAG (`all-MiniLM-L6-v2`) sobre PostgreSQL con `pgvector`.
 - **Weather and Scheduling Worker:** Especialista en calendarización y meteorología. Resuelve expresiones temporales dinámicamente y consulta la API de **Open-Meteo** para clasificar si un día es `IDEAL`, `MARGINAL` o `NO SEGURO / PROHIBIDO` para el salto.
 
-Para ejecutar el agente interactivamente en consola:
+Los workers **no** tienen las herramientas embebidas: las consumen desde el **servidor MCP** (ver siguiente sección).
+
+Para ejecutar el agente interactivamente en consola (con el servidor MCP ya levantado):
 
 ```bash
 python agent/agent_centralized.py
 ```
+
+---
+
+## HDT7 — Protocolos agénticos (MCP + A2A)
+
+```
+Terminal (A2A client) ──A2A──> Servidor A2A ──> Manager Agent ──┬─> FAQ Worker ───┐ MCP (Streamable HTTP)
+                                                                └─> Weather Worker┘──> Servidor MCP
+                                                                                       ├─ search_faq   (pgvector)
+                                                                                       └─ check_weather (Open-Meteo)
+```
+
+### Levantar el servidor MCP
+
+```bash
+python mcp_server/server.py        # http://127.0.0.1:8000/mcp  (MCP_HOST / MCP_PORT para cambiarlo)
+```
+
+Cada ejecución de tool imprime en la consola del servidor líneas como:
+
+```
+18:16:11 | INFO | parachute.mcp | CALL  search_faq args={"query": "...", "top_k": 3}
+18:16:12 | INFO | parachute.mcp | OK    search_faq en 809 ms (1010 chars) -> [FAQ-021] ...
+```
+
+El cliente (agente) usa `MCP_SERVER_URL` (por defecto `http://127.0.0.1:8000/mcp`).
+**Orden de arranque:** Docker (pgvector) → servidor MCP → agente / evals.
+
+### Puntos de entrada del agente
+
+`agent/agent_centralized.py` expone lo que necesita un `AgentExecutor`:
+
+- `manager_session()`: context manager async que abre las conexiones MCP y entrega el Manager Agent.
+- `run_query_async(pregunta, manager_agent=None)`: devuelve `{"final_output": str, "tool_calls": [...]}`.
+- `run_query(pregunta)`: versión síncrona (la usan los evals).
+
+Tests del servidor MCP: `pytest tests/test_mcp_server.py`.
 
 ---
 
@@ -108,11 +149,15 @@ El agente cuenta con dos funcionalidades centrales (FAQs y citas/clima). Cada ca
    ```bash
    python loader/load_embeddings.py
    ```
-3. **Promptfoo:** Instalado globalmente vía npm:
+3. **Servidor MCP levantado** (los workers obtienen de él sus herramientas):
+   ```bash
+   python mcp_server/server.py
+   ```
+4. **Promptfoo:** Instalado globalmente vía npm:
    ```bash
    npm i -g promptfoo
    ```
-4. **Archivo `.env`:** Debe incluir una `OPENAI_API_KEY` válida (utilizada por el agente y el evaluador LLM de las rúbricas).
+5. **Archivo `.env`:** Debe incluir una `OPENAI_API_KEY` válida (utilizada por el agente y el evaluador LLM de las rúbricas).
 
 ### Ejecución de las pruebas
 

@@ -6,3 +6,6 @@ pytest>=8.0.0
 openai>=1.50.0
 openai-agents>=0.1.0
 requests>=2.31.0
+mcp>=2.0.0
+a2a-sdk>=1.2.0
+uvicorn>=0.30.0

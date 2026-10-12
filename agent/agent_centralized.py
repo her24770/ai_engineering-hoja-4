@@ -1,31 +1,39 @@
+import asyncio
+import contextlib
 import datetime
 import os
 import sys
+import threading
 from dotenv import load_dotenv
 
 # Dependencias para agentes
-from agents import Agent, Runner, function_tool
+from agents import Agent, Runner
+from agents.mcp import MCPServerStreamableHttp, create_static_tool_filter
 
-# Importar las herramientas (como funciones de python)
-from tools import search_faq, format_search_results, get_embedding_model
-from tools_weather import check_weather
+load_dotenv()
 
-def _search_faq_handler(query: str) -> str:
-    """Busca en la base de datos vectorial de Parachute S.A. y retorna los resultados formateados."""
-    results = search_faq(query)
-    return format_search_results(results)
+# Las herramientas (search_faq, check_weather) viven en el servidor MCP
+# (mcp_server/server.py) y los workers las consumen por Streamable HTTP.
+MCP_SERVER_URL = os.getenv("MCP_SERVER_URL", "http://127.0.0.1:8000/mcp")
 
 
-def _build_manager_agent() -> Agent:
-    """Construye el Manager Agent (arquitectura centralizada) y sus workers."""
+def _mcp_client(name: str, allowed_tools: list[str]) -> MCPServerStreamableHttp:
+    """Cliente MCP hacia el servidor de herramientas, expone solo las tools del worker."""
+    return MCPServerStreamableHttp(
+        name=name,
+        params={"url": MCP_SERVER_URL, "timeout": 30},
+        tool_filter=create_static_tool_filter(allowed_tool_names=allowed_tools),
+        cache_tools_list=True,
+        client_session_timeout_seconds=60,
+    )
+
+
+def _build_manager_agent(faq_mcp: MCPServerStreamableHttp, weather_mcp: MCPServerStreamableHttp) -> Agent:
+    """Construye el Manager Agent (arquitectura centralizada) y sus workers.
+
+    Los workers obtienen sus herramientas del servidor MCP vía `faq_mcp` / `weather_mcp`."""
     today_str = datetime.date.today().isoformat()
     weekday_str = datetime.date.today().strftime("%A")
-
-    search_faq_tool = function_tool(
-        _search_faq_handler,
-        name_override="search_faq",
-        description_override="Busca preguntas frecuentes, políticas, precios y requisitos de Parachute S.A."
-    )
 
     # 1. Definir los Agentes "Workers"
     faq_agent = Agent(
@@ -38,7 +46,7 @@ def _build_manager_agent() -> Agent:
             "no afirmes que existe un servicio, área o dato que no esté escrito en el resultado. "
             "No debes invocar al clima."
         ),
-        tools=[search_faq_tool]
+        mcp_servers=[faq_mcp],
     )
 
     weather_agent = Agent(
@@ -50,7 +58,7 @@ def _build_manager_agent() -> Agent:
             "a partir de ella; nunca asumas ni inventes otro año o mes. "
             "Eres un agente especializado en verificar el clima y calendarizar citas para saltos en paracaídas de Parachute S.A. Utiliza tu herramienta 'check_weather' pasándole la fecha calculada en formato YYYY-MM-DD para saber si las condiciones son APTAS, MARGINALES o PROHIBIDAS, e informa al usuario basándote en el resultado."
         ),
-        tools=[function_tool(check_weather)]
+        mcp_servers=[weather_mcp],
     )
 
     # 2. Definir el Agente Manager (Centralizado) que usa a los workers como herramientas
@@ -78,33 +86,16 @@ def _build_manager_agent() -> Agent:
     return manager_agent
 
 
-_manager_agent: Agent | None = None
+@contextlib.asynccontextmanager
+async def manager_session():
+    """Abre las conexiones MCP y entrega el Manager Agent listo para usar."""
+    faq_mcp = _mcp_client("parachute-faq", ["search_faq"])
+    weather_mcp = _mcp_client("parachute-weather", ["check_weather"])
+    async with faq_mcp, weather_mcp:
+        yield _build_manager_agent(faq_mcp, weather_mcp)
 
 
-def get_manager_agent() -> Agent:
-    """Construye (una sola vez por proceso) y devuelve el Manager Agent."""
-    global _manager_agent
-    if _manager_agent is None:
-        get_embedding_model()
-        _manager_agent = _build_manager_agent()
-    return _manager_agent
-
-
-def run_query(pregunta: str) -> dict:
-    """Ejecuta una pregunta contra el Manager Agent y devuelve la respuesta final
-    junto con el registro de tool calls realizadas (para evals de tool execution).
-
-    Returns:
-        dict con:
-            final_output: str, la respuesta final del agente.
-            tool_calls: list[dict], cada uno con 'name' y 'arguments' (JSON string)
-                de las herramientas invocadas, en el orden en que ocurrieron.
-    """
-    load_dotenv()
-    manager_agent = get_manager_agent()
-    runner = Runner()
-    result = runner.run_sync(starting_agent=manager_agent, input=pregunta)
-
+def _extract_tool_calls(result) -> list[dict]:
     tool_calls = []
     for item in result.new_items:
         if item.type == "tool_call_item":
@@ -112,11 +103,74 @@ def run_query(pregunta: str) -> dict:
                 "name": getattr(item.raw_item, "name", None),
                 "arguments": getattr(item.raw_item, "arguments", None),
             })
+    return tool_calls
+
+
+async def run_query_async(pregunta: str, manager_agent: Agent | None = None) -> dict:
+    """Ejecuta una pregunta contra el Manager Agent.
+
+    Si `manager_agent` es None abre (y cierra) sus propias conexiones MCP.
+    Devuelve {'final_output': str, 'tool_calls': list[dict]}.
+    """
+    if manager_agent is not None:
+        result = await Runner.run(starting_agent=manager_agent, input=pregunta)
+    else:
+        async with manager_session() as agent:
+            result = await Runner.run(starting_agent=agent, input=pregunta)
 
     return {
         "final_output": result.final_output,
-        "tool_calls": tool_calls,
+        "tool_calls": _extract_tool_calls(result),
     }
+
+
+_loop: asyncio.AbstractEventLoop | None = None
+_loop_lock = threading.Lock()
+
+
+def run_query(pregunta: str) -> dict:
+    """Versión síncrona de `run_query_async` (la usan los evals de promptfoo).
+
+    Returns:
+        dict con:
+            final_output: str, la respuesta final del agente.
+            tool_calls: list[dict], cada uno con 'name' y 'arguments' (JSON string)
+                de las herramientas invocadas por el Manager, en orden.
+    """
+    load_dotenv()
+    # Un único event loop por proceso: el cliente HTTP de OpenAI queda ligado al
+    # loop donde se creó, y `asyncio.run` repetido lo dejaría apuntando a uno cerrado.
+    global _loop
+    with _loop_lock:
+        if _loop is None or _loop.is_closed():
+            _loop = asyncio.new_event_loop()
+        return _loop.run_until_complete(run_query_async(pregunta))
+
+
+async def _amain() -> None:
+    print(f"Conectando al servidor MCP en {MCP_SERVER_URL} ...")
+    async with manager_session() as manager_agent:
+        print("\n--- Arquitectura Centralizada Inicializada ---")
+        print("Manager Agent listo. Puedes hacerle preguntas de FAQs o preguntarle sobre el clima para un día específico.")
+        print("Escribe tu solicitud. Para salir presiona Ctrl-C o escribe 'Bye'.\n")
+
+        while True:
+            try:
+                pregunta = await asyncio.to_thread(input, "Tu mensaje: ")
+            except (KeyboardInterrupt, EOFError):
+                print("\nHasta luego.")
+                break
+
+            if not pregunta or pregunta.lower() == "bye":
+                print("Hasta luego.")
+                break
+
+            print("Pensando...")
+            try:
+                result = await run_query_async(pregunta, manager_agent)
+                print(f"\nManager/Respuesta Final: {result['final_output']}\n")
+            except Exception as e:
+                print(f"Error al ejecutar el agente: {e}\n")
 
 
 def main() -> None:
@@ -126,33 +180,11 @@ def main() -> None:
     if not os.getenv("OPENAI_API_KEY"):
         sys.exit("Falta OPENAI_API_KEY en .env")
 
-    print("Cargando modelo de embeddings para FAQ...")
-    manager_agent = get_manager_agent()
+    try:
+        asyncio.run(_amain())
+    except KeyboardInterrupt:
+        print("\nHasta luego.")
 
-    print("\n--- Arquitectura Centralizada Inicializada ---")
-    print("Manager Agent listo. Puedes hacerle preguntas de FAQs o preguntarle sobre el clima para un día específico.")
-    print("Escribe tu solicitud. Para salir presiona Ctrl-C o escribe 'Bye'.\n")
-
-    runner = Runner()
-
-    while True:
-        try:
-            pregunta = input("Tu mensaje: ")
-        except (KeyboardInterrupt, EOFError):
-            print("\nHasta luego.")
-            break
-
-        if not pregunta or pregunta.lower() == "bye":
-            print("Hasta luego.")
-            break
-
-        print("Pensando...")
-        try:
-            # Ejecuta el flujo utilizando Runner de openai-agents
-            result = runner.run_sync(starting_agent=manager_agent, input=pregunta)
-            print(f"\nManager/Respuesta Final: {result.final_output}\n")
-        except Exception as e:
-            print(f"Error al ejecutar el agente: {e}\n")
 
 if __name__ == "__main__":
     main()

@@ -74,7 +74,7 @@
     - type: contains
       value: "Q250"
     - type: llm-rubric
-      value: "La respuesta debe indicar un recargo administrativo de Q250 cuando el peso está entre 90 kg y 100 kg, y no debe indicar cobros adicionales que no estén en la FAQ."
+      value: "La respuesta debe indicar un recargo de Q250 cuando el peso está entre 90 kg y 100 kg (da igual si lo llama administrativo o por balance de carga), y no debe indicar otros cobros adicionales que no estén en la FAQ."
 
 # FAQ genérica (respuesta sin cifras): el agente debe remitir a soporte y no inventar datos
 - vars:
