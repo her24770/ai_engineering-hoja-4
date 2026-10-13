@@ -1,8 +1,12 @@
-# ai_engineering-hoja-6 — Evaluaciones de Calidad (Evals)
+# ai_engineering-hoja-7 — Protocolos Agénticos (MCP + A2A)
 
-Hoja de trabajo #6 — Evals, métricas y graders en la evaluación de sistemas de IA — CC3116, UVG.
+Hoja de trabajo #7 — Protocolos agénticos: Model Context Protocol (MCP) y Agent-to-Agent (A2A) — CC3116, UVG.
 
-Este proyecto implementa el ciclo de aseguramiento de calidad y evaluaciones continuas (**Evals**) para el agente de atención al cliente de **Parachute S.A.** previo a su puesta en producción, utilizando la librería y framework de evaluación **[promptfoo](https://promptfoo.dev)**.
+Este proyecto evoluciona el sistema multi-agente de atención al cliente de **Parachute S.A.** incorporando dos protocolos estándar de la industria:
+1. **Model Context Protocol (MCP):** Abstrae las herramientas del sistema (`search_faq` y `check_weather`) en un servidor centralizado con transporte **Streamable HTTP**. Los agentes workers se conectan como clientes MCP sin tener las herramientas embebidas.
+2. **Agent-to-Agent (A2A):** Envuelve el sistema multi-agente (Manager + Workers) y lo expone hacia el exterior como **un único agente unificado**, publicando su `AgentCard` con sus dos habilidades (*Skills*) oficiales y procesando mensajes vía JSON-RPC 2.0.
+
+---
 
 ## Integrantes
 * Josué Hernández Gonzales - 24770
@@ -11,17 +15,218 @@ Este proyecto implementa el ciclo de aseguramiento de calidad y evaluaciones con
 
 ---
 
-## Reporte de Evaluación
+## Arquitectura de Protocolos Agénticos
 
-El reporte interactivo generado por Promptfoo con los 10 casos de prueba y sus respectivas aserciones se encuentra en:
- **[reports/promptfoo-report.html](./reports/promptfoo-report.html)**
+```text
+[Cliente Terminal / Hoppscotch]
+               │
+               │  Protocolo A2A (HTTP / JSON-RPC 2.0) en :9000
+               ▼
+   [Servidor A2A (a2a_server)]
+   (AgentCard con 2 Skills)
+               │
+               │  run_query_async()
+               ▼
+     [Manager Agent (Supervisor)]
+         ┌─────┴──────────────┐
+         ▼                    ▼
+   [FAQ Worker]      [Weather Worker]
+         └─────┬──────────────┘
+               │
+               │  Protocolo MCP (Streamable HTTP) en :8000/mcp
+               ▼
+     [Servidor MCP (mcp_server)]
+         ├── search_faq   (RAG con PostgreSQL pgvector)
+         └── check_weather (API Open-Meteo)
+```
+
+### Funcionamiento por Capas
+
+1. **Servidor MCP (`mcp_server/server.py`):**
+   - Corre sobre **Streamable HTTP** en `http://127.0.0.1:8000/mcp`.
+   - Expone las herramientas `search_faq` (búsqueda semántica de políticas y preguntas frecuentes) y `check_weather` (pronóstico meteorológico para salto).
+   - Emite logs estructurados por cada ejecución indicando argumentos, tiempo en ms y preview del resultado (`CALL`, `OK`, `ERROR`).
+2. **Workers como Clientes MCP (`agent/agent_centralized.py`):**
+   - Los agentes especializados (`FAQ Worker` y `Weather and Scheduling Worker`) ya **no** tienen herramientas embebidas. Las consumen dinámicamente conectándose al servidor MCP vía `MCPServerStreamableHttp`.
+3. **Servidor A2A (`a2a_server/server.py`):**
+   - Construido sobre Starlette y `a2a-sdk`, escucha en `http://127.0.0.1:9000`.
+   - Mantiene una sesión *warm* con el Manager Agent mediante lifespan para mínima latencia.
+   - Publica la tarjeta de capacidades `AgentCard` en `/.well-known/agent-card.json`.
+   - Procesa consultas en `POST /` vía JSON-RPC 2.0 y emite logs por cada mensaje recibido y respondido.
 
 ---
 
-## Estructura del proyecto
+## API Reference — Servidor A2A
 
+### Tabla de Endpoints
+
+| Método | Endpoint | Descripción | Formato |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/.well-known/agent-card.json` | Retorna los metadatos del agente, interfaces compatibles y sus 2 skills oficiales. | JSON |
+| `POST` | `/` | Endpoint principal de mensajería y tareas bajo el protocolo A2A. | JSON-RPC 2.0 |
+
+---
+
+### 1. `GET /.well-known/agent-card.json`
+Retorna la especificación del agente:
+* **Nombre:** `Parachute Customer Service Agent`
+* **Versión:** `1.0.0`
+* **Skills publicadas:**
+  1. `faqs`: Consulta de normativas, peso máximo (100 kg), edad mínima (18 o 16 con tutor), precios y recargos.
+  2. `citas_clima`: Factibilidad meteorológica (APTA, MARGINAL, PROHIBIDA) para saltar en una fecha (aclara que *no* realiza reservas en base de datos).
+
+---
+
+### 2. `POST /` — Ejecución de Mensajes (JSON-RPC)
+
+#### Headers requeridos
+```http
+Content-Type: application/json
+a2a-version: 1.0
 ```
-ai_engineering-hoja-6/
+
+#### Caso 1: Consulta de FAQs (Skill `faqs`)
+
+**Request Body:**
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "SendMessage",
+  "params": {
+    "message": {
+      "message_id": "msg-001",
+      "role": 1,
+      "parts": [
+        { "text": "¿Cuál es el peso máximo permitido para saltar?" }
+      ]
+    }
+  }
+}
+```
+
+**Response (200 OK):**
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "message": {
+      "role": "ROLE_AGENT",
+      "parts": [
+        { "text": "El peso máximo permitido para realizar un salto en paracaídas es de 100 kg..." }
+      ]
+    }
+  }
+}
+```
+
+#### Caso 2: Consulta Meteorológica (Skill `citas_clima`)
+
+**Request Body:**
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 2,
+  "method": "SendMessage",
+  "params": {
+    "message": {
+      "message_id": "msg-002",
+      "role": 1,
+      "parts": [
+        { "text": "¿Las condiciones son aptas para saltar este sábado?" }
+      ]
+    }
+  }
+}
+```
+
+**Response (200 OK):**
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 2,
+  "result": {
+    "message": {
+      "role": "ROLE_AGENT",
+      "parts": [
+        { "text": "Para este sábado las condiciones se pronostican APTAS: velocidad de viento adecuada y sin precipitación..." }
+      ]
+    }
+  }
+}
+```
+
+---
+
+## Formato de Logs en Consola
+
+Durante la ejecución, cada componente emite logs en tiempo real para trazabilidad:
+
+### Logs del Servidor MCP (`mcp_server`)
+```text
+18:16:11 | INFO | parachute.mcp | CALL  search_faq args={"query": "¿Cuál es el peso máximo?", "top_k": 3}
+18:16:12 | INFO | parachute.mcp | OK    search_faq en 115 ms (1010 chars) -> [FAQ-021] Límite de peso...
+```
+
+### Logs del Servidor A2A (`a2a_server`)
+```text
+23:10:05 | INFO | parachute.a2a | [MENSAJE RECIBIDO] (task=sin-id) "¿Cuál es el peso máximo permitido para saltar?"
+23:10:07 | INFO | parachute.a2a | [RESPUESTA EMITIDA] en 1650 ms (tools: faq_worker) -> "El peso máximo permitido..."
+```
+
+---
+
+## Guía de Ejecución
+
+### Requisitos previos
+1. Clonar el repositorio y activar el entorno virtual con Python 3.10+:
+   ```bash
+   .\venv\Scripts\Activate.ps1
+   pip install -r requirements.txt
+   ```
+2. Configurar variables de entorno copiando `.env.example` a `.env` (incluyendo `OPENAI_API_KEY`).
+
+### Orden de arranque de servicios
+
+1. **Paso 1 — Base de datos vectorial (Docker):**
+   ```bash
+   docker compose up -d
+   ```
+   *(Si es la primera vez, poblar embeddings con `python loader/load_embeddings.py`)*
+
+2. **Paso 2 — Servidor MCP:**
+   ```bash
+   python mcp_server/server.py
+   ```
+   *(Escuchando en `http://127.0.0.1:8000/mcp`)*
+
+3. **Paso 3 — Servidor A2A:**
+   ```bash
+   python a2a_server/server.py
+   ```
+   *(Escuchando en `http://127.0.0.1:9000`)*
+
+4. **Paso 4 — Cliente interactivo / Pruebas:**
+   - Mediante Hoppscotch / Postman enviando peticiones a `http://127.0.0.1:9000/`.
+   - O corriendo las pruebas automatizadas.
+
+### Pruebas Automatizadas
+
+```bash
+# Tests del Servidor MCP
+pytest tests/test_mcp_server.py -v
+
+# Tests del Servidor A2A
+pytest tests/test_a2a_server.py -v
+```
+
+---
+
+## Estructura del Proyecto
+
+```text
+ai_engineering-hoja-4/
 ├── docker-compose.yml          # PostgreSQL 16 + pgvector en contenedor
 ├── db/
 │   └── init.sql                # Extensión pgvector y tabla `faqs`
@@ -33,177 +238,59 @@ ai_engineering-hoja-6/
 │   ├── db.py                   # Conexión y utilidades de base de datos
 │   └── load_embeddings.py      # Carga de embeddings con sentence-transformers
 ├── agent/
-│   ├── agent_centralized.py    # Arquitectura Centralizada (Manager Agent + Workers)
-│   ├── tools.py                # Tool `search_faq` con búsqueda semántica en pgvector
-│   └── tools_weather.py        # Tool `check_weather` con integración a Open-Meteo
+│   ├── agent_centralized.py    # Arquitectura Centralizada (Manager Agent + Workers clientes MCP)
+│   ├── tools.py                # Implementación base de búsqueda semántica
+│   └── tools_weather.py        # Implementación base de consulta meteorológica
 ├── mcp_server/
 │   └── server.py               # Servidor MCP (Streamable HTTP): search_faq + check_weather
-├── evals/
+├── a2a_server/
+│   ├── card.py                 # Definición del AgentCard y sus 2 Skills (FAQs y Citas/Clima)
+│   └── server.py               # Servidor A2A (Starlette + Uvicorn) envolviendo el Manager Agent
+├── evals/                      # Evaluaciones de calidad previas (Promptfoo - HDT6)
 │   ├── promptfooconfig.yaml    # Configuración principal de promptfoo
-│   ├── provider.py             # Custom provider que conecta promptfoo con el Manager Agent
-│   ├── asserts.py              # Aserción reutilizable en Python para tool execution
-│   ├── faq_tests.yaml          # Suite de pruebas para la funcionalidad de FAQs
-│   ├── citas_tests.yaml        # Suite de pruebas para citas, clima y casos borde
-│   └── README.md               # Guía técnica de ejecución de los evals
+│   ├── provider.py             # Custom provider conectado al Manager Agent
+│   ├── faq_tests.yaml          # Suite de pruebas para FAQs
+│   └── citas_tests.yaml        # Suite de pruebas para citas y clima
 ├── reports/
-│   └── promptfoo-report.html   # Reporte visual exportado de la evaluación
-├── docs/
-│   └── arquitectura.md         # Documentación de la arquitectura centralizada
-├── requirements.txt            # Dependencias de Python
+│   └── promptfoo-report.html   # Reporte visual exportado de la evaluación previa
+├── tests/
+│   ├── test_mcp_server.py      # Pruebas unitarias y de integración del servidor MCP
+│   └── test_a2a_server.py      # Pruebas del AgentCard, logs y JSON-RPC de A2A
+├── requirements.txt            # Dependencias del proyecto
 └── .env.example                # Variables de entorno requeridas
 ```
 
 ---
 
-## Arquitectura del Agente
+## Sección Secundaria — Evaluaciones de Calidad (Evals — HDT6)
 
-Tras evaluar las distintas alternativas de orquestación en la entrega anterior, se seleccionó y mantuvo la **Arquitectura Centralizada** ([agent/agent_centralized.py](./agent/agent_centralized.py)) como la solución más robusta y adecuada para producción:
+> En la fase anterior del proyecto se implementó el ciclo de aseguramiento de calidad y evaluaciones continuas (**Evals**) utilizando **[promptfoo](https://promptfoo.dev)**. El reporte interactivo generado se encuentra en:
+> **[reports/promptfoo-report.html](./reports/promptfoo-report.html)**
 
-- **Manager Agent (Supervisor Central):** Analiza la intención del usuario y delega las tareas a especialistas usando el patrón `as_tool()`.
-- **FAQ Worker:** Especialista en base de conocimientos. Ejecuta la herramienta `search_faq` para realizar búsqueda vectorial RAG (`all-MiniLM-L6-v2`) sobre PostgreSQL con `pgvector`.
-- **Weather and Scheduling Worker:** Especialista en calendarización y meteorología. Resuelve expresiones temporales dinámicamente y consulta la API de **Open-Meteo** para clasificar si un día es `IDEAL`, `MARGINAL` o `NO SEGURO / PROHIBIDO` para el salto.
+### Resumen de Pruebas Evaluadas (Promptfoo)
+* **FAQs:** Límites de peso (100 kg), edad mínima (18 años), velocidad en caída libre (200 km/h), recargos administrativos (Q250), preguntas sin datos en corpus y preguntas fuera de dominio.
+* **Citas y Clima:** Consulta dinámica válida de fechas relativas, casos borde en fechas pasadas, fechas mayores a 16 días y formatos inválidos.
+* **Tipos de aserciones cubiertas:** Latencia (`latency`), Tool Execution (`asserts.py:used_tool`), Determinísticas (`regex`/`contains`) y Semánticas (`llm-rubric`).
 
-Los workers **no** tienen las herramientas embebidas: las consumen desde el **servidor MCP** (ver siguiente sección).
-
-Para ejecutar el agente interactivamente en consola (con el servidor MCP ya levantado):
-
-```bash
-python agent/agent_centralized.py
-```
-
----
-
-## HDT7 — Protocolos agénticos (MCP + A2A)
-
-```
-Terminal (A2A client) ──A2A──> Servidor A2A ──> Manager Agent ──┬─> FAQ Worker ───┐ MCP (Streamable HTTP)
-                                                                └─> Weather Worker┘──> Servidor MCP
-                                                                                       ├─ search_faq   (pgvector)
-                                                                                       └─ check_weather (Open-Meteo)
-```
-
-### Levantar el servidor MCP
-
-```bash
-python mcp_server/server.py        # http://127.0.0.1:8000/mcp  (MCP_HOST / MCP_PORT para cambiarlo)
-```
-
-Cada ejecución de tool imprime en la consola del servidor líneas como:
-
-```
-18:16:11 | INFO | parachute.mcp | CALL  search_faq args={"query": "...", "top_k": 3}
-18:16:12 | INFO | parachute.mcp | OK    search_faq en 809 ms (1010 chars) -> [FAQ-021] ...
-```
-
-El cliente (agente) usa `MCP_SERVER_URL` (por defecto `http://127.0.0.1:8000/mcp`).
-**Orden de arranque:** Docker (pgvector) → servidor MCP → agente / evals.
-
-### Puntos de entrada del agente
-
-`agent/agent_centralized.py` expone lo que necesita un `AgentExecutor`:
-
-- `manager_session()`: context manager async que abre las conexiones MCP y entrega el Manager Agent.
-- `run_query_async(pregunta, manager_agent=None)`: devuelve `{"final_output": str, "tool_calls": [...]}`.
-- `run_query(pregunta)`: versión síncrona (la usan los evals).
-
-Tests del servidor MCP: `pytest tests/test_mcp_server.py`.
-
----
-
-## Sistema de Evals (Evaluación con Promptfoo)
-
-El agente cuenta con dos funcionalidades centrales (FAQs y citas/clima). Cada caso de prueba implementado en Promptfoo cubre **los 4 tipos de aserciones requeridas**:
-
-1. **Rendimiento / Latencia (`type: latency`):** Verifica que la inferencia, búsqueda semántica y llamadas a APIs externas respondan dentro del umbral de tiempo permitido (< 60s).
-2. **Tool Execution (`type: python` -> `asserts.py:used_tool`):** Inspecciona los metadatos devueltos por [evals/provider.py](./evals/provider.py) para certificar que el Manager haya delegado la tarea a la herramienta correcta (`faq_worker` o `weather_worker`).
-3. **Determinístico (`type: regex` / `contains` / `not-icontains`):** Comprueba de forma exacta la presencia de cifras oficiales, políticas o códigos de estado.
-4. **Factuality / Semántica (`type: llm-rubric`):** Un modelo evaluador califica que la respuesta sea fiel a las políticas de la empresa y no invente datos fuera de contexto ni alucine.
-
-### Listado de Pruebas Evaluadas
-
-#### 1. Funcionalidad de Preguntas Frecuentes (FAQs — [evals/faq_tests.yaml](./evals/faq_tests.yaml))
-* **Prueba 1 — Límite de peso:** Consulta sobre el peso máximo permitido (FAQ-021: 100 kg).
-* **Prueba 2 — Edad mínima:** Consulta sobre la edad mínima para saltar (FAQ-023: 18 años y excepciones para 16-17 años acompañados).
-* **Prueba 3 — Velocidad en caída libre:** Consulta sobre la velocidad alcanzada en caída libre (FAQ-053: 200 km/h promedio).
-* **Prueba 4 — Recargos por peso:** Consulta sobre cobros adicionales (FAQ-074: recargo administrativo de Q250 entre 90 y 100 kg).
-* **Prueba 5 — Caso sin datos en corpus:** Pregunta sobre instalaciones no documentadas (*zona de espectadores*). Valida que no invente datos y remita a `soporte@parachutesa.gt`.
-* **Prueba 6 — Caso fuera de dominio:** Pregunta general ajena (*"¿Cuál es la capital de Francia?"*). Valida prevención de alucinaciones y rechazo de preguntas fuera del negocio.
-
-#### 2. Funcionalidad de Citas y Clima ([evals/citas_tests.yaml](./evals/citas_tests.yaml))
-* **Prueba 7 — Consulta válida de clima / cita (Dinámica):** Consulta relativa (*"¿El próximo sábado es buen día para saltar?"*). Valida resolución dinámica de fechas relativas a partir de `today` y reporte de estado meteorológico.
-* **Prueba 8 — Caso borde: Fecha en el pasado:** Intento de agendar en una fecha pasada (`2020-01-01`). Valida que detecte que la fecha ya pasó y rechace el agendamiento.
-* **Prueba 9 — Caso borde: Fecha a más de 16 días:** Consulta para el futuro lejano (`2030-01-01`). Valida que informe el límite de predicción de 16 días de Open-Meteo.
-* **Prueba 10 — Caso borde: Formato de fecha inválido:** Fecha con formato incorrecto o inexistente (`2026-99-99`). Valida manejo del error de formato.
-
----
-
-## Cómo ejecutar los Evals
-
-### Requisitos previos
-
-1. **Docker:** Levantar la base de datos con pgvector:
-   ```bash
-   docker-compose up -d
-   ```
-2. **Datos poblados:** Si es la primera vez, cargar el corpus:
-   ```bash
-   python loader/load_embeddings.py
-   ```
-3. **Servidor MCP levantado** (los workers obtienen de él sus herramientas):
-   ```bash
-   python mcp_server/server.py
-   ```
-4. **Promptfoo:** Instalado globalmente vía npm:
-   ```bash
-   npm i -g promptfoo
-   ```
-5. **Archivo `.env`:** Debe incluir una `OPENAI_API_KEY` válida (utilizada por el agente y el evaluador LLM de las rúbricas).
-
-### Ejecución de las pruebas
-
-Desde la carpeta `evals/`:
-
+Para reproducir los evals:
 ```bash
 cd evals
+promptfoo eval --env-file ../.env -o ../reports/promptfoo-report.html
 ```
-
-* **Para correr la evaluación en consola:**
-  ```bash
-  promptfoo eval --env-file ../.env
-  ```
-
-* **Para regenerar el reporte HTML:**
-  ```bash
-  promptfoo eval --env-file ../.env -o ../reports/promptfoo-report.html
-  ```
-
-* **Para abrir el panel interactivo de resultados en el navegador:**
-  ```bash
-  promptfoo view
-  ```
 
 ---
 
-## Enunciado original del laboratorio
+## Enunciado Oficial de la Entrega
 
-### Universidad del Valle de Guatemala — Hoja de trabajo #6 - Evals — CC3116
+### Universidad del Valle de Guatemala — Hoja de trabajo #7 - Protocolos Agénticos — CC3116
 
-**Objetivos**
-- Familiarizarse con los evals, métricas, graders en la evaluación de sistemas de inteligencia artificial para asegurar la calidad de estos.
+**Objetivos:**
+* Familiarizarse con los protocolos para herramientas, prompts y recursos (MCP) y para comunicación entre agentes (A2A).
 
-**Instrucciones**
-Resuelvan el siguiente problema utilizando la herramienta/librería [promptfoo](https://www.promptfoo.dev/) para realizar los evals faltantes de la hoja de trabajo anterior. Utilizando la arquitectura que ustedes consideraron la mejor.
-Se debe de entregar un link al repositorio con el código y el archivo de reporte generado por promptfoo.
-
-**Problema**
-Debido a que Parachute S.A. ya consideró el producto que ustedes realizaron como ya terminado, le ha indicado que tiene pronto la intención de ponerlo en productivo. Como buenos ingenieros, deciden cerrar el ciclo de desarrollo con el bloque faltante, los evals, ya que Parachute S.A. le ha advertido que seguirá iterando el producto.
-
-Dado a que el agente actual que desarrolló tiene dos funcionalidades, agendar citas y resolver preguntas frecuentes, debe de realizar evals para ambos. Debe contener evals de:
-- Factuality
-- Determinísticos (contains/regex)
-- Latencia
-- Tool execution (verificar si las herramientas han sido llamadas correctamente)
-
-**Recursos de guía:**
-- [Promptfoo: Evaluate RAG](https://www.promptfoo.dev/docs/guides/evaluate-rag/)
-- [Promptfoo: Getting Started](https://www.promptfoo.dev/docs/getting-started/)
+**Instrucciones:**
+* Abstraer las herramientas de los agentes en un solo servidor MCP con transporte **Streamable HTTP**.
+* Exponer el sistema multi-agente como un solo agente con sus skills utilizando **A2A**.
+* Entregar el código en el repositorio y un video donde se visualicen simultáneamente:
+  1. El servidor MCP ejecutándose y emitiendo logs por cada tool call.
+  2. El servidor A2A ejecutándose y emitiendo logs por cada mensaje.
+  3. La aplicación de terminal interactuando con el servidor A2A.
