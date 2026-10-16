@@ -8,6 +8,10 @@ Este proyecto evoluciona el sistema multi-agente de atención al cliente de **Pa
 
 ---
 
+## Video
+
+[Video ejecutándose simultáneamente](https://youtu.be/qoO3DEEgTFc)
+
 ## Integrantes
 * Josué Hernández Gonzales - 24770
 * Jackelyn Girón - 24737
@@ -207,9 +211,11 @@ Durante la ejecución, cada componente emite logs en tiempo real para trazabilid
    ```
    *(Escuchando en `http://127.0.0.1:9000`)*
 
-4. **Paso 4 — Cliente interactivo / Pruebas:**
-   - Mediante Hoppscotch / Postman enviando peticiones a `http://127.0.0.1:9000/`.
-   - O corriendo las pruebas automatizadas.
+4. **Paso 4 — Cliente A2A interactivo (terminal):**
+   ```bash
+   python a2a_client/client.py
+   ```
+   *(Lee la URL de `A2A_SERVER_URL`)*
 
 ### Pruebas Automatizadas
 
@@ -219,6 +225,9 @@ pytest tests/test_mcp_server.py -v
 
 # Tests del Servidor A2A
 pytest tests/test_a2a_server.py -v
+
+# Tests del Cliente A2A
+pytest tests/test_a2a_client.py -v
 ```
 
 ---
@@ -246,6 +255,9 @@ ai_engineering-hoja-4/
 ├── a2a_server/
 │   ├── card.py                 # Definición del AgentCard y sus 2 Skills (FAQs y Citas/Clima)
 │   └── server.py               # Servidor A2A (Starlette + Uvicorn) envolviendo el Manager Agent
+├── a2a_client/
+│   ├── __init__.py
+│   └── client.py               # Cliente A2A interactivo de terminal (lee A2A_SERVER_URL, reutiliza context_id en toda la sesión)
 ├── evals/                      # Evaluaciones de calidad previas (Promptfoo - HDT6)
 │   ├── promptfooconfig.yaml    # Configuración principal de promptfoo
 │   ├── provider.py             # Custom provider conectado al Manager Agent
@@ -255,7 +267,8 @@ ai_engineering-hoja-4/
 │   └── promptfoo-report.html   # Reporte visual exportado de la evaluación previa
 ├── tests/
 │   ├── test_mcp_server.py      # Pruebas unitarias y de integración del servidor MCP
-│   └── test_a2a_server.py      # Pruebas del AgentCard, logs y JSON-RPC de A2A
+│   ├── test_a2a_server.py      # Pruebas del AgentCard, logs y JSON-RPC de A2A
+│   └── test_a2a_client.py      # Pruebas del cliente A2A de terminal
 ├── requirements.txt            # Dependencias del proyecto
 └── .env.example                # Variables de entorno requeridas
 ```
